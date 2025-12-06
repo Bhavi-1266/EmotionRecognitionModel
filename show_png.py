@@ -1,135 +1,178 @@
 #!/usr/bin/env python3
 """
-show_folder_portrait.py
-
-Slideshow: ensure each image is portrait and scaled so the whole image is always shown.
-Usage:
-    python3 show_folder_portrait.py images_folder [seconds_each]
-
-Defaults to 5 seconds per image.
-Press ESC or 'q' to exit.
+show_eposters.py
+Fully dynamic:
+- Uses POSTER_TOKEN from bash
+- Uses CACHE_REFRESH from bash (API refresh interval)
+- Uses DISPLAY_TIME from bash (seconds per image)
+- Uses HOME path dynamically
 """
-import sys
+
+import os
 import time
 from pathlib import Path
+import requests
 from PIL import Image
 import pygame
 
-def make_portrait_and_fit(img: Image.Image, target_w: int, target_h: int):
-    """
-    Ensure the image has portrait orientation (rotate if needed),
-    then scale it to fit entirely within target_w x target_h while preserving aspect ratio.
-    Returns a PIL RGBA image of size (target_w, target_h) with letterboxing (black bars).
-    """
-    iw, ih = img.size
+API_BASE = "https://posterbridge.incandescentsolution.com/api/v1/eposter-list"
+REQUEST_TIMEOUT = 10
 
-    # If image is landscape, rotate 90 degrees to make it portrait
+# -------------------------------
+# Read variables from environment
+# -------------------------------
+TOKEN = os.environ.get("POSTER_TOKEN")
+CACHE_REFRESH = int(os.environ.get("CACHE_REFRESH", "60"))   # default 60 seconds
+DISPLAY_SECONDS = int(os.environ.get("DISPLAY_TIME", "5"))  # default 5 seconds
+
+HOME = Path(os.environ.get("HOME", "/home/pi"))
+CACHE_DIR = HOME / "eposter_cache"
+
+
+# -------------------------------
+# Utility Functions
+# -------------------------------
+def ensure_cache():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_posters_list(token):
+    try:
+        r = requests.get(API_BASE, params={"key": token}, timeout=REQUEST_TIMEOUT)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        posters = data.get("data", [])
+        return posters
+    except Exception:
+        return []
+
+
+def download_poster(url):
+    ensure_cache()
+    fname = url.split("/")[-1]
+    dest = CACHE_DIR / fname
+    if dest.exists():
+        return dest
+
+    try:
+        r = requests.get(url, stream=True, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(8192):
+                if chunk:
+                    f.write(chunk)
+        return dest
+    except Exception:
+        return None
+
+
+def make_portrait_and_fit(img, target_w, target_h):
+    iw, ih = img.size
     if iw > ih:
         img = img.rotate(90, expand=True)
         iw, ih = img.size
 
-    # Compute scaling factor to fit entire image inside target (contain)
     scale = min(target_w / iw, target_h / ih)
-    nw = max(1, int(iw * scale))
-    nh = max(1, int(ih * scale))
+    nw = int(iw * scale)
+    nh = int(ih * scale)
+
     resized = img.resize((nw, nh), Image.LANCZOS)
 
-    # Create letterboxed canvas and paste centered
     canvas = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 255))
     x = (target_w - nw) // 2
     y = (target_h - nh) // 2
-    # If the image has alpha, use it as mask; otherwise paste normally
-    try:
-        canvas.paste(resized, (x, y), resized if resized.mode == "RGBA" else None)
-    except Exception:
-        canvas.paste(resized, (x, y))
+    canvas.paste(resized, (x, y))
     return canvas
 
-def pil_to_surface(pil_img: Image.Image):
-    """Convert PIL image → Pygame surface."""
-    mode = pil_img.mode
-    size = pil_img.size
-    data = pil_img.tobytes()
-    return pygame.image.fromstring(data, size, mode)
 
-def collect_image_files(folder: Path):
-    exts = ("*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp")
-    files = []
-    for e in exts:
-        files.extend(sorted(folder.glob(e)))
-    return files
+def pil_to_surface(pil_img):
+    return pygame.image.fromstring(
+        pil_img.tobytes(), pil_img.size, pil_img.mode
+    )
 
-def show_static(screen, surface):
-    screen.blit(surface, (0, 0))
-    pygame.display.flip()
 
+# -------------------------------
+# Main Program
+# -------------------------------
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 show_folder_portrait.py images_folder [seconds_each]")
-        sys.exit(1)
+    if not TOKEN:
+        print("ERROR: POSTER_TOKEN not set in environment!")
+        return
 
-    folder = Path(sys.argv[1])
-    if not folder.exists() or not folder.is_dir():
-        print("Folder not found:", folder)
-        sys.exit(1)
+    ensure_cache()
 
-    seconds = 5.0
-    if len(sys.argv) >= 3:
-        try:
-            seconds = float(sys.argv[2])
-        except Exception:
-            pass
+    # Initial fetch
+    posters = get_posters_list(TOKEN)
+    last_refresh = time.time()
 
-    files = collect_image_files(folder)
-    if not files:
-        print("No images found in folder:", folder)
-        sys.exit(1)
-
-    print(f"Found {len(files)} images. Press ESC or 'q' to exit.")
+    image_paths = []
+    for p in posters:
+        url = p.get("eposter_file")
+        if not url:
+            continue
+        img_path = download_poster(url)
+        if img_path:
+            image_paths.append(img_path)
 
     pygame.init()
     pygame.display.init()
+
     info = pygame.display.Info()
     scr_w, scr_h = info.current_w, info.current_h
-    print(f"Screen resolution detected: {scr_w}x{scr_h}")
 
     screen = pygame.display.set_mode((scr_w, scr_h), pygame.FULLSCREEN)
     pygame.mouse.set_visible(False)
-
     clock = pygame.time.Clock()
 
-    try:
-        idx = 0
-        while True:
-            path = files[idx % len(files)]
-            try:
-                pil = Image.open(path).convert("RGBA")
-            except Exception as e:
-                print("Failed to open", path, e)
-                idx += 1
-                continue
+    idx = 0
+    running = True
 
-            # Convert to portrait + fit whole image inside screen with letterbox
-            canvas = make_portrait_and_fit(pil, scr_w, scr_h)
+    while running:
+        # Refresh posters at interval
+        if time.time() - last_refresh >= CACHE_REFRESH:
+            posters = get_posters_list(TOKEN)
+            image_paths.clear()
+            for p in posters:
+                url = p.get("eposter_file")
+                if not url:
+                    continue
+                img_path = download_poster(url)
+                if img_path:
+                    image_paths.append(img_path)
+            last_refresh = time.time()
 
-            # Convert to pygame surface and show
-            surf = pil_to_surface(canvas)
-            show_static(screen, surf)
+        if not image_paths:
+            continue
 
-            start = time.time()
-            while time.time() - start < seconds:
-                for ev in pygame.event.get():
-                    if ev.type == pygame.QUIT:
-                        raise KeyboardInterrupt
-                    if ev.type == pygame.KEYDOWN and ev.key in (pygame.K_ESCAPE, pygame.K_q):
-                        raise KeyboardInterrupt
-                clock.tick(30)
+        path = image_paths[idx % len(image_paths)]
 
+        try:
+            pil = Image.open(path).convert("RGBA")
+        except Exception:
             idx += 1
-    except KeyboardInterrupt:
-        pass
-    finally:
-        pygame.quit()
+            continue
+
+        canvas = make_portrait_and_fit(pil, scr_w, scr_h)
+        surf = pil_to_surface(canvas)
+
+        screen.blit(surf, (0, 0))
+        pygame.display.flip()
+
+        start = time.time()
+        while time.time() - start < DISPLAY_SECONDS:
+            for ev in pygame.event.get():
+                if ev.type == pygame.KEYDOWN and ev.key in (pygame.K_ESCAPE, pygame.K_q):
+                    running = False
+                if ev.type == pygame.QUIT:
+                    running = False
+            clock.tick(30)
+
+        idx += 1
+
+    pygame.quit()
+
 
 if __name__ == "__main__":
     main()
+
