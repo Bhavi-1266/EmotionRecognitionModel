@@ -5,7 +5,7 @@ BASE="/home/eposter"
 PY_SCRIPT="$BASE/show_eposters.py"
 
 # --- Settings ---
-export POSTER_TOKEN="A9993E364706816ABA3E25717850C26C9CD0D89D"
+export POSTER_TOKEN="API_TOKEN"
 export CACHE_REFRESH=60
 export DISPLAY_TIME=5
 
