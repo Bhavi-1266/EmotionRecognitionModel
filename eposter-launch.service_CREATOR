@@ -1,18 +1,18 @@
 sudo tee /etc/systemd/system/eposter-launch.service > /dev/null <<'UNIT'
 [Unit]
-Description=Poster ePoster Launcher (runs launcher.sh)
+Description=PosterBridge Launcher (runs slideshow)
 After=network.target
+Wants=network.target
 
 [Service]
 Type=simple
-User=bhavy
+User=root
+WorkingDirectory=/home/eposter
 Environment=SDL_VIDEODRIVER=fbcon
 Environment=PYTHONUNBUFFERED=1
-WorkingDirectory=/home/bhavy/eposter
-ExecStart=/bin/bash /home/launcher.sh
+ExecStart=/bin/bash /home/eposter/launcher.sh
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-UNIT
