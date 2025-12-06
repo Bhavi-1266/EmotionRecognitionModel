@@ -17,6 +17,7 @@ import sys
 import shutil
 import subprocess
 import requests
+import json
 from PIL import Image
 import pygame
 
@@ -32,6 +33,8 @@ DISPLAY_TIME = int(os.environ.get("DISPLAY_TIME", "5"))     # seconds
 
 HOME = Path(os.environ.get("HOME", str(Path.home())))
 CACHE_DIR = HOME / "eposter_cache"
+API_DATA_JSON = HOME / "api_data.json"  # JSON file to store API response data
+EVENT_DATA_JSON = Path(__file__).parent / "event_data.json"  # JSON file with event data
 
 # Wi-Fi envs (optional)
 WIFI_SSID = os.environ.get("WIFI_SSID")
@@ -115,6 +118,7 @@ def ensure_cache():
 def fetch_posters(token):
     """
     Returns a list of poster dicts (as returned by API) or None on failure.
+    Also saves the raw API response to api_data.json.
     """
     try:
         r = requests.get(API_BASE, params={"key": token}, timeout=REQUEST_TIMEOUT)
@@ -122,6 +126,15 @@ def fetch_posters(token):
             print(f"[fetch_posters] API returned status {r.status_code}")
             return None
         data = r.json()
+        
+        # Save the raw API response to JSON file
+        try:
+            with open(API_DATA_JSON, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            print(f"[fetch_posters] Saved API response to {API_DATA_JSON}")
+        except Exception as e:
+            print(f"[fetch_posters] Failed to save API data to JSON: {e}")
+        
         if isinstance(data, dict):
             arr = data.get("data") or data.get("eposters") or []
             if isinstance(arr, list):
@@ -211,6 +224,43 @@ def make_portrait_and_fit(img: Image.Image, target_w: int, target_h: int) -> Ima
 def pil_to_surface(pil_img: Image.Image):
     return pygame.image.fromstring(pil_img.tobytes(), pil_img.size, pil_img.mode)
 
+def load_event_data():
+    """
+    Loads event data from event_data.json file.
+    Returns a single event dict or None on failure.
+    """
+    try:
+        if not EVENT_DATA_JSON.exists():
+            print(f"[load_event_data] Event data file not found: {EVENT_DATA_JSON}")
+            return None
+        with open(EVENT_DATA_JSON, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            # If it's already a dict with event fields, return it directly
+            if isinstance(data, dict) and "event_id" in data:
+                return data
+            # Otherwise return None
+            return None
+    except Exception as e:
+        print(f"[load_event_data] Error loading event data: {e}")
+        return None
+
+def print_event_info(event, image_index):
+    """
+    Prints event information to console.
+    """
+    print("\n" + "="*60)
+    print(f"Displaying Image #{image_index + 1}")
+    print("="*60)
+    print(f"Event ID:        {event.get('event_id', 'N/A')}")
+    print(f"Event Name:      {event.get('event_name', 'N/A')}")
+    print(f"Date:            {event.get('date', 'N/A')}")
+    print(f"Time:            {event.get('time', 'N/A')}")
+    print(f"Venue:           {event.get('venue', 'N/A')}")
+    print(f"Organizer:       {event.get('organizer', 'N/A')}")
+    print(f"Category:        {event.get('category', 'N/A')}")
+    print(f"Description:     {event.get('description', 'N/A')}")
+    print("="*60 + "\n")
+
 # -------------------------
 # Main
 # -------------------------
@@ -235,6 +285,14 @@ def main():
     image_paths = []
     idx = 0
     running = True
+    
+    # Load event data
+    event_data = load_event_data()
+    if event_data:
+        print(f"[main] Loaded event data from {EVENT_DATA_JSON}")
+        print(f"[main] Event: {event_data.get('event_name', 'N/A')}")
+    else:
+        print(f"[main] No event data loaded. Using default display.")
 
     try:
         while running:
@@ -287,6 +345,12 @@ def main():
 
             # display current image
             path = image_paths[idx % len(image_paths)]
+            current_image_idx = idx % len(image_paths)
+            
+            # Print event information if available
+            if event_data:
+                print_event_info(event_data, current_image_idx)
+            
             try:
                 img = Image.open(path).convert("RGBA")
             except Exception as e:
