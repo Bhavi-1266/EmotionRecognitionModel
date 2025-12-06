@@ -5,6 +5,7 @@ show_eposters.py
 - Reads POSTER_TOKEN from environment (required).
 - CACHE_REFRESH (seconds) controls API polling interval (default 60).
 - DISPLAY_TIME (seconds) controls per-image display time (default 5).
+- Optionally reads WIFI_SSID, WIFI_PSK, WIFI_CONNECT_TIMEOUT to bring up Wi-Fi before starting.
 - Keeps cache directory ($HOME/eposter_cache) exactly synchronized with current API image list.
 - Shows images fullscreen in portrait orientation (whole image visible).
 - Exit cleanly with ESC or 'q'.
@@ -13,6 +14,8 @@ from pathlib import Path
 import os
 import time
 import sys
+import shutil
+import subprocess
 import requests
 from PIL import Image
 import pygame
@@ -30,8 +33,81 @@ DISPLAY_TIME = int(os.environ.get("DISPLAY_TIME", "5"))     # seconds
 HOME = Path(os.environ.get("HOME", str(Path.home())))
 CACHE_DIR = HOME / "eposter_cache"
 
+# Wi-Fi envs (optional)
+WIFI_SSID = os.environ.get("WIFI_SSID")
+WIFI_PSK = os.environ.get("WIFI_PSK")
+WIFI_TIMEOUT = int(os.environ.get("WIFI_CONNECT_TIMEOUT", "60"))  # seconds to wait to become online
+
 # -------------------------
-# Helpers
+# Wi-Fi helpers
+# -------------------------
+def is_online(check_url=API_BASE, timeout=3):
+    try:
+        requests.get(check_url, timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+def connect_wifi_nmcli(ssid, psk=None, iface=None, timeout=WIFI_TIMEOUT, check_url=API_BASE):
+    """
+    Use nmcli to connect to SSID. Returns True on success.
+    """
+    nmcli = shutil.which("nmcli")
+    if not nmcli:
+        print("[wifi] nmcli not found; cannot auto-connect.")
+        return False
+
+    # if already online, nothing to do
+    if is_online(check_url=check_url):
+        print("[wifi] Already online.")
+        return True
+
+    # If already connected to SSID, just verify internet
+    try:
+        out = subprocess.check_output([nmcli, "-t", "-f", "ACTIVE,SSID", "dev", "wifi"], text=True)
+        for line in out.splitlines():
+            parts = line.split(":")
+            if len(parts) >= 2 and parts[0] == "yes" and parts[1] == ssid:
+                print(f"[wifi] Already connected to {ssid}.")
+                return is_online(check_url=check_url)
+    except Exception:
+        pass
+
+    print(f"[wifi] Attempting nmcli connect to SSID='{ssid}' (timeout {timeout}s)...")
+    cmd = [nmcli, "device", "wifi", "connect", ssid]
+    if psk:
+        cmd += ["password", psk]
+    if iface:
+        cmd += ["ifname", iface]
+
+    try:
+        rc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+        print("[wifi] nmcli output:", rc.stdout.strip())
+    except Exception as e:
+        print("[wifi] nmcli connect failure:", e)
+        return False
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if is_online(check_url=check_url):
+            print("[wifi] Online!")
+            return True
+        time.sleep(1.0)
+
+    print("[wifi] Timed out waiting for network to become online.")
+    return False
+
+# Attempt Wi-Fi connect if WIFI_SSID provided
+if WIFI_SSID:
+    ok = connect_wifi_nmcli(WIFI_SSID, WIFI_PSK, timeout=WIFI_TIMEOUT, check_url=API_BASE)
+    if not ok:
+        print("[wifi] Could not ensure Wi-Fi connectivity. Exiting with failure so systemd can retry.")
+        sys.exit(1)
+else:
+    print("[wifi] WIFI_SSID not set; skipping auto-connect. Ensure network is up before starting.")
+
+# -------------------------
+# Helpers (cache, fetch, display)
 # -------------------------
 def ensure_cache():
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,7 +122,6 @@ def fetch_posters(token):
             print(f"[fetch_posters] API returned status {r.status_code}")
             return None
         data = r.json()
-        # sample structure: {"status":true,"message":"...","data":[{...}]}
         if isinstance(data, dict):
             arr = data.get("data") or data.get("eposters") or []
             if isinstance(arr, list):
@@ -59,23 +134,16 @@ def fetch_posters(token):
         return None
 
 def expected_filenames_from_urls(urls):
-    """Return set of filenames expected in cache based on URLs."""
     names = set()
     for u in urls:
         if not u:
             continue
-        # keep only last path segment
         name = u.split("/")[-1].split("?")[0]
         if name:
             names.add(name)
     return names
 
 def sync_cache(expected_urls):
-    """
-    Ensure cache contains exactly the files named by expected_urls.
-    Returns list of Path objects for files that are now in cache (downloaded or already present),
-    in the same order as expected_urls.
-    """
     ensure_cache()
     expected_names = expected_filenames_from_urls(expected_urls)
 
@@ -92,7 +160,7 @@ def sync_cache(expected_urls):
             except Exception as e:
                 print("[sync_cache] failed delete:", f.name, e)
 
-    # Download missing files and collect paths in the same order as expected_urls
+    # Download missing files in order
     cached_paths = []
     for url in expected_urls:
         if not url:
@@ -104,7 +172,6 @@ def sync_cache(expected_urls):
         if dest.exists():
             cached_paths.append(dest)
             continue
-        # download to tmp then rename (avoid 'with requests.get' misuse)
         tmp = None
         try:
             r = requests.get(url, stream=True, timeout=REQUEST_TIMEOUT)
@@ -119,7 +186,6 @@ def sync_cache(expected_urls):
             cached_paths.append(dest)
         except Exception as e:
             print("[sync_cache] download failed for", url, "->", e)
-            # try to remove tmp if exists
             try:
                 if tmp and tmp.exists():
                     tmp.unlink()
@@ -128,7 +194,6 @@ def sync_cache(expected_urls):
     return cached_paths
 
 def make_portrait_and_fit(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
-    """Rotate to portrait if needed, scale to fit entirely, and letterbox on black canvas."""
     iw, ih = img.size
     if iw > ih:
         img = img.rotate(90, expand=True)
@@ -144,7 +209,6 @@ def make_portrait_and_fit(img: Image.Image, target_w: int, target_h: int) -> Ima
     return canvas
 
 def pil_to_surface(pil_img: Image.Image):
-    """Convert PIL image to pygame surface."""
     return pygame.image.fromstring(pil_img.tobytes(), pil_img.size, pil_img.mode)
 
 # -------------------------
@@ -257,4 +321,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
