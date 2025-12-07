@@ -24,9 +24,8 @@ def make_landscape_and_fit(img: Image.Image, target_w: int, target_h: int) -> Im
         Image: Processed image
     """
     iw, ih = img.size
-    if iw < ih:
-        img = img.rotate(-90, expand=True)
-        iw, ih = img.size
+    img = img.rotate(-90, expand=True)
+    iw, ih = img.size
     scale = min(target_w / iw, target_h / ih)
     nw = max(1, int(iw * scale))
     nh = max(1, int(ih * scale))
