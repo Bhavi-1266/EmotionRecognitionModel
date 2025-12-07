@@ -58,11 +58,13 @@ def convert_to_landscape(img):
     if width > height:
         return img
     
-    # If portrait, rotate 90 degrees
+    # If portrait, rotate 90 degrees counter-clockwise (expand=True keeps full image)
     if height > width:
-        return img.rotate(90, expand=True)
+        rotated = img.rotate(-90, expand=True)
+        print(f"[convert_to_landscape] Rotated from {width}x{height} to {rotated.size[0]}x{rotated.size[1]}")
+        return rotated
     
-    # If square, return as is (or you could decide to rotate)
+    # If square, return as is
     return img
 
 
@@ -99,28 +101,58 @@ def sync_cache(posters):
 
     # Download and process images
     cached_paths = []
+    print(f"[sync_cache] Processing {len(posters)} posters...")
     for poster in posters:
         if not isinstance(poster, dict):
+            print(f"[sync_cache] Warning: Poster is not a dict: {type(poster)}")
             continue
         
-        # Get poster ID
+        # Debug: print poster keys to help diagnose
+        if len(cached_paths) == 0:  # Only print for first poster
+            print(f"[sync_cache] Sample poster keys: {list(poster.keys())}")
+        
+        # Get poster ID (convert to string/int for consistency)
         poster_id = poster.get("PosterId") or poster.get("id")
-        if not poster_id:
+        if poster_id is None:
+            print(f"[sync_cache] Warning: No ID found for poster: {poster}")
+            continue
+        
+        # Convert ID to int then string for consistent naming
+        try:
+            poster_id = int(poster_id)
+        except (ValueError, TypeError):
+            print(f"[sync_cache] Warning: Invalid ID '{poster_id}', skipping")
             continue
         
         # Get image URL
         url = poster.get("eposter_file") or poster.get("file") or None
         if not url:
+            print(f"[sync_cache] Warning: No URL found for poster ID {poster_id}")
             continue
         
         # Create filename from ID
         fname = f"{poster_id}.png"
         dest = CACHE_DIR / fname
         
-        # If file already exists, add to list and continue
+        # Always reprocess to ensure landscape (remove old file if exists)
         if dest.exists():
-            cached_paths.append((poster_id, dest))
-            continue
+            try:
+                # Check if it's already landscape, if not, reprocess
+                existing_img = Image.open(dest)
+                w, h = existing_img.size
+                if w <= h:  # Not landscape, need to reprocess
+                    print(f"[sync_cache] Existing file {fname} is not landscape, reprocessing...")
+                    dest.unlink()
+                else:
+                    # Already landscape, just add to list
+                    cached_paths.append((poster_id, dest))
+                    continue
+            except Exception as e:
+                print(f"[sync_cache] Error checking existing file {fname}: {e}, will reprocess")
+                try:
+                    dest.unlink()
+                except:
+                    pass
         
         # Download and process image
         tmp = None
@@ -138,6 +170,9 @@ def sync_cache(posters):
             
             # Open image, convert to landscape, and save as PNG
             img = Image.open(tmp)
+            original_size = img.size
+            print(f"[sync_cache] Original image size: {original_size[0]}x{original_size[1]}")
+            
             # Convert to RGB if necessary (for PNG compatibility)
             if img.mode in ('RGBA', 'LA', 'P'):
                 # Create white background for transparency
@@ -152,6 +187,8 @@ def sync_cache(posters):
             
             # Convert to landscape
             img = convert_to_landscape(img)
+            final_size = img.size
+            print(f"[sync_cache] Final image size: {final_size[0]}x{final_size[1]} (landscape: {final_size[0] > final_size[1]})")
             
             # Save as PNG
             img.save(dest, 'PNG', optimize=True)
@@ -160,7 +197,7 @@ def sync_cache(posters):
             if tmp.exists():
                 tmp.unlink()
             
-            print(f"[sync_cache] Saved: {fname} (landscape)")
+            print(f"[sync_cache] Saved: {fname} (ID: {poster_id}, size: {final_size[0]}x{final_size[1]})")
             cached_paths.append((poster_id, dest))
             
         except Exception as e:
