@@ -173,6 +173,9 @@ def main():
             if now - last_sync >= CACHE_REFRESH:
                 print("[main] Fetching posters from API...")
                 posters = api_handler.fetch_posters(POSTER_TOKEN)
+            with open("api_data.json", 'r') as f:
+                poster_data = json.load(f)
+                posters = poster_data.get("data", [])
 
                 if posters is None:
                     print("[main] API fetch error; will retry later.")
