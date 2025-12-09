@@ -92,12 +92,12 @@ def fetch_posters(token):
             print(f"[fetch_posters] Failed to save API data to JSON: {e}")
         
         # Handle new API response structure: {status, message, data: [...]}
-        if isinstance(data, dict):
-            # Check for new structure with status and data array
-            if "status" in data and "screens" in data:
-                posters = data.get("data", [])
-                if isinstance(posters, list):
-                    return posters
+        # if isinstance(data, dict):
+        #     # Check for new structure with status and data array
+        #     if "status" in data and "screens" in data:
+        #         posters = data.get("data", [])
+        #         if isinstance(posters, list):
+        #             return posters
             
             # Fallback to old structure
             # arr = data.get("data") or data.get("eposters") or []
