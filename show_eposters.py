@@ -183,11 +183,11 @@ def main():
                         key=lambda x: x.get("PosterId") or x.get("id", 0), 
                         reverse=True
                     )
-
+                    
                     # Sync cache (pass full poster data, not just URLs)
                     # Cache handler will name files by ID and convert to landscape
                     image_paths = cache_handler.sync_cache(posters)
-
+                    
                     if not image_paths:
                         print("[main] No poster images found in API.")
                     else:

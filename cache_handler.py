@@ -94,6 +94,8 @@ def sync_cache(posters):
     myScreen = screens.get(DEVICE_ID, {})
     records = myScreen.get("records", [])
     
+    
+    print(f"[sync_cache] Syncing cache with {len(records)} posters (device {DEVICE_ID})")
     expected_names = expected_filenames_from_posters(records)
 
     # Delete extras (files not in expected list)
@@ -215,4 +217,5 @@ def sync_cache(posters):
     # Sort by ID (newest first) and return just the paths
     cached_paths.sort(key=lambda x: x[0], reverse=True)
     return [path for _, path in cached_paths]
+
 
