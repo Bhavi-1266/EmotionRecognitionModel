@@ -14,7 +14,7 @@ import pygame
 # Configuration
 with open(Path(__file__).parent / 'config.json', 'r') as f:
     config = json.load(f)
-    ROTATION_DEGREE = int(config.get('display', {}).get('rotationDegree', 0))
+    ROTATION_DEGREE = int(config.get('display', {}).get('rotation_degree', 0))
 
 
 def make_landscape_and_fit(img: Image.Image, target_w: int, target_h: int, rotation: int = None) -> Image.Image:
