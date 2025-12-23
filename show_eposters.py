@@ -181,7 +181,7 @@ def main():
                 posters = poster_data
                 screens = posters.get("screens", [])
                 myScreen = next((s for s in screens if s.get("screen_number") == DEVICE_ID), {})
-                DISPLAY_TIME = myScreen.get("minutes_per_record", DISPLAY_TIME)
+                DISPLAY_TIME = myScreen.get("minutes_per_record")
                 records = myScreen.get("records", [])
  
                 if records is None:
@@ -222,12 +222,10 @@ def main():
             path = image_paths[idx % len(image_paths)]
             current_image_idx = idx % len(image_paths)
             for poster in records:
-                if current_image_idx == poster.get("id") - 1:
+                if poster.get("start_dt") <= datetime.now() <= poster.get("end_dt") :
                     now_dt = datetime.now()
+                    current_image_idx = poster.get("id")
                     break
-            if (poster.get("start_dt") <= now_dt <= poster.get("end_dt")):
-                idx += 1
-                continue 
             
             # Print event information if available
             if event_data:
