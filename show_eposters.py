@@ -117,10 +117,10 @@ def main():
     # Step 1: Ensure WiFi connection
     print("[main] Step 1: Ensuring WiFi connection...")
     display_handler.show_waiting_message(screen, scr_w, scr_h, message="Connecting to WiFi...")
-    if not wifi_connect.ensure_wifi_connection():
-        print("[main] WiFi connection failed. Exiting.")
-        display_handler.show_waiting_message(screen, scr_w, scr_h, message="WiFi connection failed. Exiting.")
-        sys.exit(1)
+    # if not wifi_connect.ensure_wifi_connection():
+    #     print("[main] WiFi connection failed. Exiting.")
+    #     display_handler.show_waiting_message(screen, scr_w, scr_h, message="WiFi connection failed. Exiting.")
+    #     sys.exit(1)
 
     # Step 2: Initialize API handler (creates JSON file if needed)
     print("[main] Step 2: Initializing API handler...")

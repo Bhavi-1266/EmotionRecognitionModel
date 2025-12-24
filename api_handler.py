@@ -14,7 +14,7 @@ from datetime import datetime
 with open(Path(__file__).parent / 'config.json', 'r') as f:
     config = json.load(f)
 
-API_BASE = config.get("api", {}).get("poster_api_url", "https://posterbridge.incandescentsolution.com/api/v1/eposter-list")
+API_BASE = config.get("api", {}).get("poster_api_url")
 REQUEST_TIMEOUT = config.get("api", {}).get("request_timeout", 10)
 
 
@@ -35,6 +35,8 @@ def ensure_api_json():
             with open(API_DATA_JSON, 'w', encoding='utf-8') as f:
                 json.dump(empty_data, f, indent=2, ensure_ascii=False)
             print(f"[ensure_api_json] Created empty API data file: {API_DATA_JSON}")
+        else :
+            print(f"[ensure_api_json] API data file already exists: {API_DATA_JSON}")
     except Exception as e:
         print(f"[ensure_api_json] Failed to create API data file: {e}")
 
@@ -72,7 +74,7 @@ def fetch_posters(token):
             return None
         
         data = r.json()
-        
+        print(data , f"[fetch_posters] Successfully fetched posters from API")
         # Get current system date/time
         current_dt = get_current_datetime()
         
