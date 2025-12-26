@@ -13,6 +13,11 @@ import pygame
 import json
 from datetime import datetime, timedelta
 
+
+#importing module menu 
+from menu import run_menu
+
+
 # Import our modules
 import wifi_connect
 import api_handler
@@ -40,6 +45,8 @@ DEVICE_ID = config.get('display', {}).get('device_id', 'default_device')
 # -------------------------
 # Utility Functions
 # -------------------------
+
+
 
 def log(message, level="INFO"):
     """
@@ -316,6 +323,8 @@ def print_poster_info(poster, image_index):
     print("="*70 + "\n")
 
 
+
+
 # -------------------------
 # Main Function
 # -------------------------
@@ -387,141 +396,215 @@ def main():
     current_poster = None
     data_source = 'none'
     running = True
-    
+    displayManuel=False
+    displayManuelImg=""
+    requestManuel=False
+    def displayFormMenu(displayManuelImg):
+        if displayManuelImg.exists():
+            display_handler.display_image(screen, displayManuelImg, scr_w, scr_h)
+            pygame.display.flip()
+            return True
+        else:
+            display_handler.show_waiting_message(screen, scr_w, scr_h, message="Image not found")
+            pygame.display.flip()
+            time.sleep(2)
+            return False
+
     try:
         while running:
             now = time.time()
-            
-            # -------------------------
-            # Refresh Data Every 30 Seconds (if WiFi connected)
-            # -------------------------
-            if now - last_api_fetch >= API_REFRESH_INTERVAL:
-                log(f"[{func_name}] Refreshing data (elapsed: {now - last_api_fetch:.1f}s)", "DEBUG")
-                
-                # Check WiFi status
-                wifi_connected = wifi_connect.ensure_wifi_connection()
-                # wifi_connected = True
-                
-                # Fetch and cache
-                new_records, new_display_time, new_source = fetch_and_cache_posters(wifi_connected)
-                
-                if new_records:
-                    records = new_records
-                    display_time = new_display_time
-                    data_source = new_source
-                    log(f"[{func_name}] Data refreshed from {data_source}: {len(records)} records", "INFO")
-                
-                last_api_fetch = now
-            
-            # -------------------------
-            # Check if we have data to display
-            # -------------------------
-            if not records:
-                log(f"[{func_name}] No poster data available, showing waiting message", "WARNING")
-                display_handler.show_waiting_message(
-                    screen, scr_w, scr_h, 
-                    message="No poster data available\nWaiting for data..."
-                )
-                pygame.display.flip()
-                time.sleep(5)
-                
-                # Handle events
-                if not display_handler.handle_events():
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
                     running = False
-                continue
+
+                # RIGHT CLICK → open menu
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                    log(f"[{func_name}] STEP 4: Entering menu loop from running menu", "INFO")
+                    requestManuel=True
+                    log(f"[{func_name}] STEP 4: Entering menu loop", "INFO")
+                    requestManuel=False
+                    action, payload = run_menu()
             
-            # -------------------------
-            # Find Current Poster Based on Time
-            # -------------------------
-            current_poster = find_current_poster(records)
-            
-            if not current_poster:
-                log(f"[{func_name}] No suitable poster found, showing waiting message", "WARNING")
-                display_handler.show_waiting_message(
-                    screen, scr_w, scr_h,
-                    message="No posters scheduled at this time"
-                )
-                pygame.display.flip()
-                time.sleep(5)
+                    if action == "TIMED_POSTER":
+                        displayManuel=False
+                        displayManuelImg=""
+
+                    elif action == "IMAGE_SELECTED":
+                        displayManuel=True
+                        displayManuelImg=payload
+
+                    elif action == "EXIT":
+                        return 0
+
+
                 
-                # Handle events
-                if not display_handler.handle_events():
-                    running = False
-                continue
-            
-            # -------------------------
-            # Display Current Poster
-            # -------------------------
-            poster_id = current_poster.get('id')
-            image_path = SCRIPT_DIR / "eposter_cache" / f"{poster_id}.png"
-            
-            # Print poster info
-            print_poster_info(current_poster, poster_id)
-            
-            # Check if image exists
-            if not image_path.exists():
-                log(f"[{func_name}] Image not found for poster {poster_id}: {image_path}", "ERROR")
-                display_handler.show_waiting_message(
-                    screen, scr_w, scr_h,
-                    message=f"Image not found for poster {poster_id}"
-                )
-                pygame.display.flip()
-                time.sleep(5)
                 
-                # Handle events
-                if not display_handler.handle_events():
-                    running = False
-                continue
-            
-            # Display the image
-            if not display_handler.display_image(screen, str(image_path), scr_w, scr_h):
-                log(f"[{func_name}] Failed to display image: {image_path}", "ERROR")
-                time.sleep(1)
-                continue
-            
-            pygame.display.flip()
-            
-            # -------------------------
-            # Hold Display and Handle Events
-            # -------------------------
-            now_dt = datetime.now()
-            start_dt = current_poster.get('start_dt')
-            end_dt = current_poster.get('end_dt')
-            
-            # Calculate how long to show this poster
-            if start_dt <= now_dt <= end_dt:
-                # Currently active - show until end time or display_time, whichever is shorter
-                time_until_end = (end_dt - now_dt).total_seconds()
-                show_duration = min(display_time, time_until_end)
-                log(f"[{func_name}] Showing active poster for {show_duration:.0f}s (until end or display_time)", "DEBUG")
-            elif start_dt > now_dt:
-                # Upcoming - show until start time or display_time
-                time_until_start = (start_dt - now_dt).total_seconds()
-                show_duration = min(display_time, time_until_start)
-                log(f"[{func_name}] Showing upcoming poster for {show_duration:.0f}s (until start or display_time)", "DEBUG")
+
+            from pathlib import Path    
+            displayManuelImg=Path(displayManuelImg)
+
+            #menu displaying
+            if(displayManuel):
+                displayManuel=displayFormMenu(displayManuelImg)
+            #normal loop time based
             else:
-                # Past - just show for display_time
-                show_duration = display_time
-                log(f"[{func_name}] Showing past poster for {show_duration:.0f}s", "DEBUG")
-            
-            # Display loop with event handling
-            start_time = time.time()
-            while time.time() - start_time < show_duration:
-                # Handle events (returns False if quit event)
-                if not display_handler.handle_events():
-                    running = False
-                    break
+
+                # -------------------------
+                # Refresh Data Every 30 Seconds (if WiFi connected)
+                # -------------------------
+                if now - last_api_fetch >= API_REFRESH_INTERVAL:
+                    log(f"[{func_name}] Refreshing data (elapsed: {now - last_api_fetch:.1f}s)", "DEBUG")
+                    
+                    # Check WiFi status
+                    wifi_connected = wifi_connect.ensure_wifi_connection()
+                    # wifi_connected = True
+                    
+                    # Fetch and cache
+                    new_records, new_display_time, new_source = fetch_and_cache_posters(wifi_connected)
+                    
+                    if new_records:
+                        records = new_records
+                        display_time = new_display_time
+                        data_source = new_source
+                        log(f"[{func_name}] Data refreshed from {data_source}: {len(records)} records", "INFO")
+                    
+                    last_api_fetch = now
                 
-                # Check if it's time to refresh data
-                if time.time() - last_api_fetch >= API_REFRESH_INTERVAL:
-                    log(f"[{func_name}] Time to refresh data, breaking display loop", "DEBUG")
-                    break
+                # -------------------------
+                # Check if we have data to display
+                # -------------------------
+                if not records:
+                    log(f"[{func_name}] No poster data available, showing waiting message", "WARNING")
+                    display_handler.show_waiting_message(
+                        screen, scr_w, scr_h, 
+                        message="No poster data available\nWaiting for data..."
+                    )
+                    pygame.display.flip()
+                    time.sleep(5)
+                    
+                    # Handle events
+                    if not display_handler.handle_events():
+                        running = False
+                    continue
                 
-                clock.tick(30)  # 30 FPS
-            
-            # Small delay before next iteration
-            time.sleep(0.1)
-    
+                # -------------------------
+                # Find Current Poster Based on Time
+                # -------------------------
+                current_poster = find_current_poster(records)
+                
+                if not current_poster:
+                    log(f"[{func_name}] No suitable poster found, showing waiting message", "WARNING")
+                    display_handler.show_waiting_message(
+                        screen, scr_w, scr_h,
+                        message="No posters scheduled at this time"
+                    )
+                    pygame.display.flip()
+                    time.sleep(5)
+                    
+                    # Handle events
+                    if not display_handler.handle_events():
+                        running = False
+                    continue
+                
+                # -------------------------
+                # Display Current Poster
+                # -------------------------
+                poster_id = current_poster.get('id')
+                image_path = SCRIPT_DIR / "eposter_cache" / f"{poster_id}.png"
+                
+                # Print poster info
+                print_poster_info(current_poster, poster_id)
+                
+                # Check if image exists
+                if not image_path.exists():
+                    log(f"[{func_name}] Image not found for poster {poster_id}: {image_path}", "ERROR")
+                    display_handler.show_waiting_message(
+                        screen, scr_w, scr_h,
+                        message=f"Image not found for poster {poster_id}"
+                    )
+                    pygame.display.flip()
+                    time.sleep(5)
+                    
+                    # Handle events
+                    if not display_handler.handle_events():
+                        running = False
+                    continue
+                
+                # Display the image
+                if not display_handler.display_image(screen, str(image_path), scr_w, scr_h):
+                    log(f"[{func_name}] Failed to display image: {image_path}", "ERROR")
+                    time.sleep(1)
+                    continue
+                
+                pygame.display.flip()
+                
+                # -------------------------
+                # Hold Display and Handle Events
+                # -------------------------
+                now_dt = datetime.now()
+                start_dt = current_poster.get('start_dt')
+                end_dt = current_poster.get('end_dt')
+                
+                # Calculate how long to show this poster
+                if start_dt <= now_dt <= end_dt:
+                    # Currently active - show until end time or display_time, whichever is shorter
+                    time_until_end = (end_dt - now_dt).total_seconds()
+                    show_duration = min(display_time, time_until_end)
+                    log(f"[{func_name}] Showing active poster for {show_duration:.0f}s (until end or display_time)", "DEBUG")
+                elif start_dt > now_dt:
+                    # Upcoming - show until start time or display_time
+                    time_until_start = (start_dt - now_dt).total_seconds()
+                    show_duration = min(display_time, time_until_start)
+                    log(f"[{func_name}] Showing upcoming poster for {show_duration:.0f}s (until start or display_time)", "DEBUG")
+                else:
+                    # Past - just show for display_time
+                    show_duration = display_time
+                    log(f"[{func_name}] Showing past poster for {show_duration:.0f}s", "DEBUG")
+                
+                # Display loop with event handling
+                start_time = time.time()
+                # while time.time() - start_time < show_duration:
+                #     for event in pygame.event.get():
+                #         if event.type == pygame.QUIT:
+                #             running = False
+                #             break
+
+                # # RIGHT CLICK → open menu
+                #         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                #             requestManuel=True
+                #             if(requestManuel):
+                #                 log(f"[{func_name}] Right-click event detected, breaking display loop", "INFO")
+                #                 requestManuel=False
+                #                 action, payload = run_menu()
+                        
+                #                 if action == "TIMED_POSTER":
+                #                     displayManuel=False
+                #                     displayManuelImg=""
+
+                #                 elif action == "IMAGE_SELECTED":
+                #                     displayManuel=True
+                #                     displayManuelImg=payload
+
+                #                 elif action == "EXIT":
+                #                     return 0
+                #             break
+                                
+                #     # Handle events (returns False if quit event)
+                #     if not display_handler.handle_events():
+                #         running = False
+                #         break
+                    
+                #     # Check if it's time to refresh data
+                #     if time.time() - last_api_fetch >= API_REFRESH_INTERVAL:
+                #         log(f"[{func_name}] T   ime to refresh data, breaking display loop", "DEBUG")
+                #         break
+
+                    
+
+                #     clock.tick(30)  # 30 FPS
+                # Small delay before next iteration
+                time.sleep(0.08)
+        
     except KeyboardInterrupt:
         log(f"[{func_name}] KeyboardInterrupt received, shutting down gracefully", "INFO")
     

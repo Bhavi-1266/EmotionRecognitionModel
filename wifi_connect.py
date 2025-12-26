@@ -112,6 +112,16 @@ def connect_wifi_nmcli(ssid=None, psk=None, iface=None, timeout=None, check_url=
     print("[wifi] Timed out waiting for network to become online.")
     return False
 
+import socket
+
+def internet_available(timeout=2):
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=timeout)
+        return True
+    except OSError:
+        return False
+
+
 
 def ensure_wifi_connection():
     """
@@ -121,6 +131,12 @@ def ensure_wifi_connection():
     Returns:
         bool: True if connected or not needed, False on failure
     """
+
+    # If already online, nothing to do
+    if internet_available():
+        print("[wifi] Already online.")
+        return True
+    
     # If no WiFi configured at all, skip
     if not WIFI_SSID and not WIFI_SSID_2:
         print("[wifi] No WIFI_SSID configured; skipping auto-connect. Ensure network is up before starting.")
